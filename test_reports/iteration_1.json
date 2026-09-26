@@ -1,0 +1,32 @@
+{
+  "summary": "Backend-only testing for FozPay rebrand. Wrote /app/backend/tests/test_fozpay.py covering all 14 requested items: registration-disabled (403 with Ukrainian message), admin login/role, admin user CRUD (list/create/duplicate-400/change-password/delete/cannot-delete-self), non-admin 403 on /api/admin/*, hot wallet GET (evm+tron addresses, balances[], total_usd), hot-wallet withdraw insufficient (400 'Недостатньо коштів у гарячому гаманці'), non-EVM chain rejected (400), deposit-address EVM (0x, 42 chars) & TRON (T...), swap+withdraw insufficient (400) on zero-balance user, live prices (USDT≈1, BTC>0), merchant public/private endpoints. 19/19 tests pass against the deployed backend at REACT_APP_BACKEND_URL.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fozpay.py",
+    "/app/test_reports/pytest/fozpay_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "core.get_current_user prefers cookie over Authorization header — a shared requests.Session that logged in as user A will send A's cookie regardless of Bearer header. Not a bug per se, but easy to trip on. Consider preferring Authorization Bearer when explicitly present, or documenting behavior.",
+    "server.py is 1466 lines — recommend splitting admin/user, hot-wallet, wallet, merchant, invoice routers into separate modules for maintainability (>700-line threshold).",
+    "admin_users_create returns the full user dict including internal fields (auth_provider, created_at, picture) — consider a response schema. Response uses 'user_id' key, not 'id', which frontends should align on."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fozpay.py"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "not tested"},
+  "test_credentials": "admin@fozpay.io / FozPay#Admin2026 (from /app/memory/test_credentials.md). Merchant X-Auth-Token/Secret used from same file.",
+  "seed_data_creation": "Tests create ephemeral users prefixed test_/hw_/swap_ and delete them; no leftover data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_fozpay.py is the canonical FozPay regression file — run with 'python -m pytest backend/tests/test_fozpay.py -v -o addopts=\"\"'. Notes: (1) backend prefers cookie auth over Bearer, so if using a shared requests.Session, clear cookies between logins under different roles (fixture _clear_cookies does this). (2) POST /api/auth/register is 403 with Ukrainian body — response contains detail 'Публічна реєстрація вимкнена'. (3) Admin user objects use user_id field, not id. (4) Real on-chain sends untested per instructions.",
+  "rca of the issue": "N/A — all requested behavior verified."
+}
