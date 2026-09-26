@@ -1,47 +1,36 @@
 # FozPay — Crypto Payment Gateway (PRD)
 
-## Original problem statement
-Clone of an open crypto-payment product (repo: github.com/maksymnykytiuk92-cpu/wwe) with:
-real deposit / withdraw / swap, purple glassmorphism redesign, rebrand to **FozPay**,
-remove public registration (admin creates users & changes their passwords), fix direct
-(non-invoice) deposit crediting + history, real swap & withdrawal, and a **hot wallet**
-that all deposits are swept to and from which withdrawals/swaps/commissions are handled;
-admin can withdraw any currency from the hot wallet. API must work.
+## Origin
+Cloned from GitHub repo `feromaksua-gif/fff` and deployed into `/app`.
+Stack: FastAPI + React + MongoDB. HD (BIP-44) wallet, EVM + TRON + BTC/LTC/SOL.
 
-## Architecture
-- FastAPI + MongoDB (motor) backend; React (CRACO) + Tailwind + shadcn frontend.
-- HD wallet (BIP-44) from `WALLET_MNEMONIC`; per-user deposit addresses (index ≥1),
-  hot wallet at index 0 (EVM `TREASURY_EVM`, TRON index 0).
-- Real chain access: Alchemy (EVM), TronGrid (TRON), mempool.space (BTC), 1inch (EVM swaps for auto-swap).
-- Live prices from Binance public API.
+## Core Requirements (static)
+- Crypto payment gateway: merchant invoices, cabinet balances, deposits, withdrawals, swap.
+- Single BIP-39 mnemonic → per-user deposit addresses; funds swept to a platform hot wallet.
+- Public registration disabled; admin creates/manages users.
+- **Hot-wallet key encrypted at rest** (DB leak alone must not reveal it).
 
-## User personas
-- **Admin** (single superadmin): creates/deletes users, resets passwords, sets platform fees,
-  toggles networks, manages hot wallet (view on-chain balances, withdraw any currency).
-- **User/Merchant**: deposit, withdraw, internal swap, invoices, merchant API keys.
+## Personas
+- Admin/operator: manages users, hot wallet, withdrawals, platform fees.
+- Merchant/user: receives crypto, exchanges, withdraws.
 
-## Core requirements (static)
-- No public registration; JWT email/password login (+ optional Google + 2FA).
-- Deposits (invoice AND direct) credit balance + write history, then sweep to hot wallet.
-- Internal swap by live rate (CoinGecko/Binance), fee stays in platform pool on hot wallet.
-- Real EVM withdrawals paid out from hot wallet by a background worker.
-- Merchant private API (X-Auth-Token + sha256 signature).
+## Implemented (2026-06 session)
+- **Deploy**: repo copied to `/app`, deps installed (bip-utils, web3, eth-account, 1inch, etc.), `.env` created with user keys (ALCHEMY_KEY, TRONGRID_KEY, ONEINCH_KEY), generated JWT_SECRET + Fernet MNEMONIC_ENC_KEY. Admin: admin@fozpay.io / FozPay#Admin2026.
+- **Wallet encryption at rest**: mnemonic stored ONLY as Fernet token (`system.wallet.mnemonic_enc`); key `MNEMONIC_ENC_KEY` lives only in `backend/.env`, never in DB. Verified no plaintext mnemonic in DB.
+- **Hot wallet address**: now derived from HD seed at EVM index 0 (deposit addresses start at index 1). Enables auto gas-funding + auto-sweep. `/api/admin/hot-wallet` returns populated evm_address (previously blank because TREASURY_EVM was unset).
+- **Scan all EVM networks**: `direct_deposit_worker` now uses `scan_evm_address` to detect every supported asset (native + USDT/USDC) across Ethereum/BSC/Polygon/Arbitrum on each deposit address, then auto-sweeps to the hot wallet (gas auto-funded from hot wallet for token sweeps).
+- **Real on-chain exchange (no simulation)**: `/api/wallet/exchange` now executes a REAL 1inch swap on the hot wallet for same-chain EVM pairs and credits the actual on-chain received amount (minus platform swap %). Unsupported pairs (BTC↔ETH, cross-chain, non-EVM) are rejected with a clear message instead of a simulated ledger conversion.
 
-## Implemented (2026-06)
-- Rebrand OKIPAYS/MaksPAY → **FozPay** across backend + frontend.
-- Purple glassmorphism theme (index.css global re-skin + glass Layout/Login).
-- Removed `/auth/register` (returns 403); admin user management endpoints:
-  `GET/POST /api/admin/users`, `PUT /api/admin/users/password`, `DELETE /api/admin/users/{id}`.
-- Settings → **Users** and **Hot Wallet** admin tabs.
-- `direct_deposit_worker`: detects on-chain deposits to per-user addresses (no invoice),
-  credits balance + records tx, then sweeps to hot wallet (fixes the reported bug).
-- `withdrawal_worker`: real EVM payout from hot wallet for Pending withdrawals.
-- `sweep_to_hot_wallet`: moves confirmed deposits to hot wallet.
-- Hot wallet admin: `GET /api/admin/hot-wallet` (live balances), `POST /api/admin/hot-wallet/withdraw`.
+## Testing
+- 12/12 new backend tests pass (`backend/tests/test_realswap_and_encryption.py`).
+- 18/19 regression (`test_fozpay.py`); the 1 failure is a pre-existing stale hardcoded merchant token in the test, unrelated.
 
-## Backlog (P1/P2)
-- P1: Real TRON/BTC withdrawals & sweeps (currently EVM real; non-EVM operator-assisted).
-- P2: Per-address deposit txid tracking; email notifications; AML review queue UI.
+## MOCKED / untested with real funds
+- Real on-chain sweep / withdraw / hot-wallet payout / exchange require the hot wallet to actually hold crypto + native gas. Logic is real (verified it queries live balances) but cannot be confirmed end-to-end until the hot wallet is funded. TRON/BTC payouts remain operator-handled (real automation is EVM only).
 
-## Test credentials
-- Admin: admin@fozpay.io / FozPay#Admin2026 (see /app/memory/test_credentials.md).
+## Backlog / Next
+- P1: Real automatic TRON (USDT-TRC20) sweeps/withdrawals.
+- P1: Pending-exchange worker to remove the ledger-vs-onchain desync window in synchronous swap.
+- P2: Deposit alerts (email/Telegram) to admin on sweep.
+- P2: Admin analytics (volume, fees, hot-wallet trends); user freeze.
+- P2: Add more EVM networks (Base/Optimism/Avalanche) to scanning + catalog.
