@@ -25,11 +25,11 @@ FIAT_RATES_USD = {"USD": 1.0, "EUR": 1.08, "UAH": 0.024}
 CURRENCIES = {
     "USDT": {
         "id": 1, "name": "Tether", "iso3": "USDT", "color": "#26A17B",
-        "networks": [1, 2, 4, 6, 7],
+        "networks": [4, 2, 1, 6, 7],
     },
     "USDC": {
         "id": 2, "name": "USD Coin", "iso3": "USDC", "color": "#2775CA",
-        "networks": [1, 4, 6, 7],
+        "networks": [4, 1, 6, 7],
     },
     "BTC": {
         "id": 3, "name": "Bitcoin", "iso3": "BTC", "color": "#F7931A",

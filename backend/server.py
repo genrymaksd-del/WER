@@ -105,7 +105,7 @@ async def allocate_address(user_id: str, iso: str, network_id: int, invoice_id=N
             {"_id": 0})
         if existing:
             return existing
-    idx = await next_index(chain)
+    idx = await next_index("evm" if chain in ("ethereum", "bsc", "polygon", "arbitrum") else chain)
     d = derive_address(_seed["bytes"], chain, idx)
     doc = {"user_id": user_id, "iso": iso, "network_id": network_id, "chain": chain,
            "index": idx, "address": d["address"], "path": d["path"],

@@ -59,6 +59,27 @@ def _w3(chain: str) -> Web3:
     return Web3(Web3.HTTPProvider(_rpc_url(chain), request_kwargs={"timeout": 20}))
 
 
+# Per-chain minimum gas price (wei) — just enough for reliable inclusion, no more.
+# BSC's protocol minimum is 0.1 gwei; forcing higher wastes the gas we send to
+# deposit addresses. estimate_gas from an unfunded deposit address is impossible,
+# so we fund a tight, realistic gas limit (below) instead of estimating.
+_GAS_PRICE_FLOOR = {"bsc": 100_000_000}  # 0.1 gwei (BSC protocol minimum)
+# Realistic gas a single ERC-20 transfer consumes per chain (with a small safety
+# margin). Kept tight so the gas top-up sent to a deposit address is minimal.
+_TOKEN_GAS_LIMIT_BY_CHAIN = {
+    "bsc": 60_000, "polygon": 80_000, "ethereum": 90_000, "arbitrum": 1_500_000,
+}
+_GAS_FUND_BUFFER = 1.1  # 10% headroom on the funded gas amount
+
+
+def _token_gas_limit(chain: str) -> int:
+    return _TOKEN_GAS_LIMIT_BY_CHAIN.get(chain, 90_000)
+
+
+def _gas_price(w3: Web3, chain: str) -> int:
+    return max(int(w3.eth.gas_price), _GAS_PRICE_FLOOR.get(chain, 0))
+
+
 def scan_evm_address(address: str) -> list:
     """Scan a single 0x address across ALL EVM chains for native + token balances."""
     addr = Web3.to_checksum_address(address)
@@ -143,7 +164,7 @@ def sweep_evm(privkey: str, chain: str, kind: str, contract: str, to_address: st
     acct = w3.eth.account.from_key(privkey)
     frm = acct.address
     to_cs = Web3.to_checksum_address(to_address)
-    gas_price = w3.eth.gas_price
+    gas_price = _gas_price(w3, chain)
     gas_funded = None
     try:
         if kind == "native":
@@ -160,20 +181,16 @@ def sweep_evm(privkey: str, chain: str, kind: str, contract: str, to_address: st
             raw = c.functions.balanceOf(frm).call()
             if raw <= 0:
                 return {"ok": False, "error": "No token balance"}
-            # estimate gas needed for the transfer
-            probe = c.functions.transfer(to_cs, raw).build_transaction(
-                {"from": frm, "nonce": w3.eth.get_transaction_count(frm), "gasPrice": gas_price, "chainId": chainid})
-            try:
-                gas_limit = int(w3.eth.estimate_gas(probe) * 1.25)
-            except Exception:
-                gas_limit = 120000
+            # The deposit address has no native gas, so estimate_gas is impossible
+            # here — use a tight, realistic limit and fund exactly that from treasury.
+            gas_limit = _token_gas_limit(chain)
             needed = gas_limit * gas_price
             native_bal = w3.eth.get_balance(frm)
             if native_bal < needed:
-                # GAS STATION: top up from treasury
+                # GAS STATION: top up from treasury (hot wallet)
                 if not treasury_pk:
                     return {"ok": False, "error": f"Not enough {native} for gas. Provide treasury gas funding."}
-                topup = int((needed - native_bal) * 1.3)
+                topup = int((needed - native_bal) * _GAS_FUND_BUFFER)
                 gas_funded = _fund_gas(w3, treasury_pk, frm, topup, gas_price, chainid, native)
                 if not gas_funded.get("ok"):
                     return {"ok": False, "error": "Gas funding failed: " + gas_funded.get("error", "")}
@@ -260,7 +277,7 @@ def send_evm_amount(privkey: str, chain: str, iso: str, to_address: str, amount:
     acct = w3.eth.account.from_key(privkey)
     frm = acct.address
     to_cs = Web3.to_checksum_address(to_address)
-    gas_price = w3.eth.gas_price
+    gas_price = _gas_price(w3, chain)
     try:
         if iso == native:
             value = int(round(amount * 1e18))
@@ -281,15 +298,10 @@ def send_evm_amount(privkey: str, chain: str, iso: str, to_address: str, amount:
             have = c.functions.balanceOf(frm).call()
             if have < raw:
                 return {"ok": False, "error": f"Недостатньо {iso} на гарячому гаманці (баланс {have/(10**dec):.6f})"}
-            probe = c.functions.transfer(to_cs, raw).build_transaction(
-                {"from": frm, "nonce": w3.eth.get_transaction_count(frm), "gasPrice": gas_price, "chainId": chainid})
-            try:
-                gas_limit = int(w3.eth.estimate_gas(probe) * 1.25)
-            except Exception:
-                gas_limit = 120000
+            gas_limit = _token_gas_limit(chain)
             needed = gas_limit * gas_price
             if w3.eth.get_balance(frm) < needed and treasury_pk and treasury_pk != privkey:
-                gf = _fund_gas(w3, treasury_pk, frm, int((needed) * 1.3), gas_price, chainid, native)
+                gf = _fund_gas(w3, treasury_pk, frm, int((needed) * _GAS_FUND_BUFFER), gas_price, chainid, native)
                 if gf.get("ok"):
                     w3.eth.wait_for_transaction_receipt(gf["tx_hash"], timeout=180)
             if w3.eth.get_balance(frm) < needed:
