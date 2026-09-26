@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 3 gas-fix verification: 18/18 new tests pass in /app/backend/tests/test_gas_fix_and_bep20.py. Verified recovery.py gas config (BSC floor 0.1 gwei = 100_000_000 wei, tight per-chain limits bsc=60000/eth=90000/poly=80000/arb=1500000, buffer 1.1). New BSC token top-up ~6.6e-6 BNB vs old 1.3e-4 BNB (~19.7x reduction). Confirmed neither sweep_evm nor send_evm_amount call estimate_gas (both use fixed _token_gas_limit(chain)). BEP-20 (network_id 4) is FIRST default for USDT and USDC. Hot wallet at 0x06B8Edf964E761ba0BdA4430B57098De03E9627c (HD idx 0) holds real USDT on BSC, total_usd > 0. Admin USDT ledger balance = 6.5 with matching deposit tx. BTC->ETH rejected as unsupported on-chain pair. USDT->ETH reaches real 1inch path (returns real-balance/gas error, no simulated ledger swap).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_gas_fix_and_bep20.py",
+    "/app/test_reports/pytest/gas_fix_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still 1602 lines (>>700) — split cabinet/admin/hot-wallet/merchant routers.",
+    "recovery.sweep_evm/send_evm_amount silently skip gas-funding when treasury_pk not provided by returning a soft error — good, but caller (direct_deposit_worker) MUST always pass treasury_pk; verify that path in an integration test.",
+    "_TOKEN_GAS_LIMIT_BY_CHAIN for arbitrum=1_500_000 is very high (L2 accounting) — reasonable, but on Arbitrum gas price is tiny so top-up remains small; still worth documenting the reason inline.",
+    "_gas_price uses max(network, floor). If BSC network price ever spikes and floor is smaller, we correctly use network price. Good.",
+    "send_evm_amount only funds gas if treasury_pk != privkey; correct guard against self-funding loops.",
+    "No retry/backoff on _fund_gas wait_for_transaction_receipt(timeout=180). On BSC congestion this could hang the request thread; consider moving to a background sweeper.",
+    "Consider adding an integration test that mocks web3 to simulate a full ERC-20 sweep and asserts gas topup value == _token_gas_limit(chain) * _gas_price * 1.1 exactly (unit-level check of the funded amount)."
+  ],
+  "updated_files": ["/app/backend/tests/test_gas_fix_and_bep20.py"],
+  "success_rate": {"backend": "100% (18/18 new gas-fix tests)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "admin@fozpay.io / FozPay#Admin2026",
+  "seed_data_creation": "Only temporary BTC ledger row for exchange non-EVM test (deleted in finally). Admin's real USDT 6.5 ledger + hot wallet state untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression files: test_fozpay.py (has 1 pre-existing failure on hardcoded merchant token), test_realswap_and_encryption.py (12/12 pass), test_gas_fix_and_bep20.py (18/18 pass, this iteration). Hot wallet 0x06B8Edf964E761ba0BdA4430B57098De03E9627c holds real ~6.5 USDT on BSC + tiny BNB — DO NOT touch. Admin has real 6.5 USDT ledger balance and a matching deposit tx. Real on-chain sweeps cannot be exercised without funding fresh test deposits.",
+  "rca of the issue": "Original complaint: gas top-up sent to newly-generated deposit addresses was wastefully large. RCA: recovery.py used a 1 gwei floor for gas price and a fixed 100_000 gas limit with 1.3x buffer, producing ~1.3e-4 BNB top-up per sweep on BSC (many times more than needed). Fix: (1) Dropped BSC floor to protocol minimum 0.1 gwei (100_000_000 wei). (2) Replaced fixed 100_000 gas limit + 1.3x with tight per-chain _TOKEN_GAS_LIMIT_BY_CHAIN (bsc 60000) and 1.1x _GAS_FUND_BUFFER. (3) Removed estimate_gas calls entirely (they would fail on gas-less deposit addresses anyway). Result: BSC top-up is now ~6.6e-6 BNB — a ~20x reduction. Verified by direct module inspection + endpoint tests."
+}

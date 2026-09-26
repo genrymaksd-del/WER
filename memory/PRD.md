@@ -28,6 +28,14 @@ Stack: FastAPI + React + MongoDB. HD (BIP-44) wallet, EVM + TRON + BTC/LTC/SOL.
 ## MOCKED / untested with real funds
 - Real on-chain sweep / withdraw / hot-wallet payout / exchange require the hot wallet to actually hold crypto + native gas. Logic is real (verified it queries live balances) but cannot be confirmed end-to-end until the hot wallet is funded. TRON/BTC payouts remain operator-handled (real automation is EVM only).
 
+## Session 2 (bug fixes — real BSC deposit)
+- **Recovered real funds**: user sent 6.5 USDT (BEP-20) to deposit address `0x7571...` (HD index 2) which wasn't in DB → wasn't scanned. Swept to hot wallet `0x06B8...` (tx 0xdfb15f...), gas auto-funded from hot wallet. Admin cabinet credited 6.5 USDT.
+- **Gas estimate bug fixed** (recovery.py): token sweeps crashed with "insufficient funds" because web3 auto-called estimate_gas from the gas-less deposit address. Now uses fixed per-chain gas limit (no estimate on unfunded address).
+- **Gas over-funding fixed**: BSC gas-price floor 1 gwei → 0.1 gwei (protocol min); gas limit 100k+1.3x → per-chain tight limits (bsc 60k) + 1.1x buffer. ~20x less BNB sent to deposit addresses per sweep.
+- **BEP-20 default**: catalog USDT networks [4,2,1,6,7], USDC [4,1,6,7] — BSC first.
+- **Unique EVM indexing**: allocate_address uses a shared "evm" HD counter so every EVM deposit address is globally unique (no cross-network address reuse). Migrated counter to 2.
+- Verified: 18/18 gas-fix tests pass; no regressions.
+
 ## Backlog / Next
 - P1: Real automatic TRON (USDT-TRC20) sweeps/withdrawals.
 - P1: Pending-exchange worker to remove the ledger-vs-onchain desync window in synchronous swap.
